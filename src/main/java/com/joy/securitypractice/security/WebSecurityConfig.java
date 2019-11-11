@@ -1,6 +1,8 @@
 package com.joy.securitypractice.security;
 
+import org.hibernate.SessionFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
@@ -8,7 +10,10 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.access.expression.DefaultWebSecurityExpressionHandler;
 import org.springframework.security.web.authentication.WebAuthenticationDetails;
 
 import javax.servlet.http.HttpServletRequest;
@@ -91,8 +96,9 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
                 .and().sessionManagement()
                 .invalidSessionUrl("/login/invalid") //Session失效后的处理逻辑
                 .maximumSessions(1) // 最大登录数
-                .maxSessionsPreventsLogin(false) // 当达到最大值时，是否保留已经登录的用户
+                .maxSessionsPreventsLogin(false) // 当达到最大值时，是否保留已经登录的用户。若设置为true，则不允许二次登录。
                 .expiredSessionStrategy(new MyExpiredSessionStrategy())// 当达到最大值时，旧用户被提出后的操作
+                .sessionRegistry(sessionRegistry())
         ;
         // 关闭CSRF跨域
         http.csrf().disable();
@@ -103,4 +109,20 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
         // 设置拦截忽略文件夹，可以对静态资源放行
         web.ignoring().mvcMatchers("/static/**");
     }
+
+    @Bean
+    public SessionRegistry sessionRegistry(){
+        return new SessionRegistryImpl();
+    }
+
+    /**
+     * 注入自定义PermissionEvaluator
+     */
+    @Bean
+    public DefaultWebSecurityExpressionHandler webSecurityExpressionHandler(){
+        DefaultWebSecurityExpressionHandler handler = new DefaultWebSecurityExpressionHandler();
+        handler.setPermissionEvaluator(new MyPermissionEvaluator());
+        return handler;
+    }
+
 }
