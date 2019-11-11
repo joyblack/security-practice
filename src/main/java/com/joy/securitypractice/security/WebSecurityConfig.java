@@ -1,6 +1,7 @@
 package com.joy.securitypractice.security;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -8,6 +9,9 @@ import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.WebAuthenticationDetails;
+
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * 该类是 Spring Security 的配置类，该类的三个注解分别是标识该类是配置类、开启 Security 服务、
@@ -27,6 +31,13 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
     @Autowired
     private MyUserDetailsService myUserDetailsService;
 
+    @Autowired
+    private AuthenticationDetailsSource<HttpServletRequest, WebAuthenticationDetails> authenticationDetailsSource;
+
+    @Autowired
+    private MyAuthenticationProvider myAuthenticationProvider;
+
+
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
         auth.userDetailsService(myUserDetailsService)
@@ -40,13 +51,19 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
                     public boolean matches(CharSequence rawPassword, String encodedPassword) {
                         return encodedPassword.equals(rawPassword.toString());
                     }
+                    // 最后在 WebSecurityConfig 中将其注入，并在 config 方法中通过 auth.authenticationProvider() 指定使用
+
                 });
+        // 注入自定义Provider
+        auth.authenticationProvider(myAuthenticationProvider);
     }
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
 
         http.authorizeRequests()
+                // 允许验证码
+                .antMatchers("/getVerifyCode").permitAll()
                 .anyRequest()
                 .authenticated()
                 .and()
@@ -54,13 +71,16 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
                 .formLogin().loginPage("/login")
                 // 设置登陆成功页
                 .defaultSuccessUrl("/").permitAll()
+                // 登陆出错的跳转地址
+                .failureUrl("/login/error")
+                .authenticationDetailsSource(authenticationDetailsSource) //指定authenticationDetailsSource
                 // 自定义登录名、密码参数，默认为username和password
                 //.usernameParameter("username")
                 //.passwordParameter("password")
-                .and()
-                .logout().permitAll()
-                .and()
-                .csrf().disable();
+                .and().logout().permitAll()
+                .and().rememberMe() //cookie方式记住我
+                // 关闭CSRF跨域
+                .and().csrf().disable();
     }
 
     @Override
