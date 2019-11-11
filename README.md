@@ -73,3 +73,136 @@ This is spring security 5.2.0 learn project.
 * WebAuthenticationDetails：该类提供了获取用户登录时携带的额外信息的功能，默认提供了 remoteAddress 与 sessionId 信息。
 
 * AuthenticationDetailsSource
+
+# 登录管理
+* 即 failureUrl() 指定认证失败后Url，defaultSuccessUrl() 指定认证成功后Url。
+* 我们也可以通过设置 successHandler() 和 failureHandler() 来实现自定义认证成功、失败处理。
+> 当我们设置了这两个后，需要去除 failureUrl() 和 defaultSuccessUrl() 的设置，否则无法生效。这两套配置同时只能存在一套。
+
+## 1、登录成功、失败的自定义逻辑处理
+1、分别定义两个实现成功Handler和失败Handler的处理接口
+```java
+/**
+ * 登录失败之后的处理逻辑
+ */
+@Component
+public class MyAuthenticationFailedHandler implements AuthenticationFailureHandler {
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Override
+    public void onAuthenticationFailure(HttpServletRequest httpServletRequest, HttpServletResponse response, AuthenticationException e) throws IOException, ServletException {
+        System.out.println("登录失败...");
+        response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write(objectMapper.writeValueAsString(e.getMessage()));
+    }
+}
+```
+
+```java
+/**
+ * 验证成功之后的逻辑
+ */
+@Component
+public class MyAuthenticationSuccessHandler implements AuthenticationSuccessHandler {
+    @Override
+    public void onAuthenticationSuccess(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Authentication authentication) throws IOException, ServletException {
+        System.out.println("登录成功!");
+        // 跳转地址
+        httpServletResponse.sendRedirect("/");
+    }
+}
+```
+
+将两个处理逻辑注册到安全配置类`WebSecurityConfig`
+```html
+    http.authorizeRequests()
+    ...
+        .successHandler(authenticationSuccessHandler) //登录成功之后的处理逻辑
+        .failureHandler(authenticationFailedHandler) // 登录失败之后的处理逻辑
+    ...
+```
+* 首先将 customAuthenticationSuccessHandler 和 customAuthenticationFailureHandler注入进来
+* 配置 successHandler() 和 failureHandler()
+* 注释 failureUrl() 和 defaultSuccessUrl()
+
+## 2、超时处理
+Session 超时的配置是 SpringBoot 原生支持的，我们只需要在 application.properties 配置文件中配置：
+```yml
+# session 过期时间，单位：秒
+server.servlet.session.timeout=60
+```
+我们可以在 Spring Security 中配置处理逻辑，在 session 过期退出时调用。修改 WebSecurityConfig 的 configure() 方法，添加：
+```txt
+.sessionManagement()
+	// 以下二选一
+	//.invalidSessionStrategy()
+	//.invalidSessionUrl();
+```
+Spring Security 提供了两种处理配置，一个是 invalidSessionStrategy()，另外一个是 invalidSessionUrl()。
+
+这两个的区别就是一个是前者是在一个类中进行处理，后者是直接跳转到一个 Url。简单起见，我就直接用 invalidSessionUrl()了，跳转到 /login/invalid，我们需要把该 Url 设置为免授权访问， 配置如下：
+```txt
+   http.authorizeRequests()
+            // 如果有允许匿名的url，填在下面
+            .antMatchers("/login/invalid").permitAll()
+            .anyRequest().authenticated().and()
+            ...
+            .sessionManagement()
+            .invalidSessionUrl("/login/invalid");
+```
+然后配置处理过期连接的controller
+```txt
+    /**
+     * Session失效
+     */
+    @RequestMapping("/login/invalid")
+    @ResponseBody
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public String invalid(){
+        return "Session已过期，请重新登录...";
+    }
+```
+等待1分钟或者重启服务器（清空session缓存），刷新页面，则会调到我们定义的invalid界面。
+
+## 3、限制最大登录数
+接下来实现限制最大登陆数，原理就是限制单个用户能够存在的最大 session 数。
+
+在上一节的基础上，修改 configure() 为：
+```txt
+.sessionManagement()
+    // 注意此处开放/login/invalid的可访问权限
+	.invalidSessionUrl("/login/invalid")
+	.maximumSessions(1)
+	// 当达到最大值时，是否保留已经登录的用户
+	.maxSessionsPreventsLogin(false)
+	// 当达到最大值时，旧用户被踢出后的操作
+    .expiredSessionStrategy(new CustomExpiredSessionStrategy())
+```
+增加了下面三行代码，其中：
+* maximumSessions(int)：指定最大登录数；
+* maxSessionsPreventsLogin(boolean)：是否保留已经登录的用户；为true，新用户无法登录；为 false，旧用户被踢出；
+* expiredSessionStrategy(SessionInformationExpiredStrategy)：旧用户被踢出后处理方法；
+
+> maxSessionsPreventsLogin()可能不太好理解，这里我们先设为 false，效果和 QQ 登录是一样的，登录后之前登录的账户被踢出。
+
+编写 CustomExpiredSessionStrategy 类，来处理旧用户登陆失败的逻辑：
+```java
+public class MyExpiredSessionStrategy implements SessionInformationExpiredStrategy {
+
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public void onExpiredSessionDetected(SessionInformationExpiredEvent event) throws IOException {
+        Map<String, Object> res = new HashMap<>();
+        res.put("code", 0);
+        res.put("msg", "已经由另一台机器登录，您被迫下线。" + event.getSessionInformation().getLastRequest());
+
+        String str = objectMapper.writeValueAsString(res);
+
+        event.getResponse().setContentType("application/json;charset=utf-8");
+        event.getResponse().getWriter().write(str);
+    }
+}
+```

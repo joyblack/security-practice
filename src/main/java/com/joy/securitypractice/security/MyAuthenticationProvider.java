@@ -74,6 +74,4 @@ public class MyAuthenticationProvider implements AuthenticationProvider {
         System.out.println("用户输入：" + vertify);
         return validateCode.equals(vertify);
     }
-
-
 }

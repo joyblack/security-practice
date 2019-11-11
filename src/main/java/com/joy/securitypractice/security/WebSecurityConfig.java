@@ -37,6 +37,12 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
     @Autowired
     private MyAuthenticationProvider myAuthenticationProvider;
 
+    @Autowired
+    private MyAuthenticationSuccessHandler authenticationSuccessHandler;
+
+    @Autowired
+    private MyAuthenticationFailedHandler authenticationFailedHandler;
+
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
@@ -60,27 +66,36 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-
         http.authorizeRequests()
                 // 允许验证码
-                .antMatchers("/getVerifyCode").permitAll()
+                .antMatchers("/getVerifyCode","/login/invalid").permitAll()
                 .anyRequest()
                 .authenticated()
                 .and()
                 // 设置登录页
                 .formLogin().loginPage("/login")
                 // 设置登陆成功页
-                .defaultSuccessUrl("/").permitAll()
+                //.defaultSuccessUrl("/")
                 // 登陆出错的跳转地址
-                .failureUrl("/login/error")
+                //.failureUrl("/login/error")// 和handler互不兼容
+                .successHandler(authenticationSuccessHandler) //登录成功之后的跳转逻辑
+                .failureHandler(authenticationFailedHandler)
+                .permitAll()
                 .authenticationDetailsSource(authenticationDetailsSource) //指定authenticationDetailsSource
                 // 自定义登录名、密码参数，默认为username和password
                 //.usernameParameter("username")
                 //.passwordParameter("password")
                 .and().logout().permitAll()
                 .and().rememberMe() //cookie方式记住我
-                // 关闭CSRF跨域
-                .and().csrf().disable();
+                 // Session配置
+                .and().sessionManagement()
+                .invalidSessionUrl("/login/invalid") //Session失效后的处理逻辑
+                .maximumSessions(1) // 最大登录数
+                .maxSessionsPreventsLogin(false) // 当达到最大值时，是否保留已经登录的用户
+                .expiredSessionStrategy(new MyExpiredSessionStrategy())// 当达到最大值时，旧用户被提出后的操作
+        ;
+        // 关闭CSRF跨域
+        http.csrf().disable();
     }
 
     @Override
